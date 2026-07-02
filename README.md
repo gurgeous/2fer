@@ -1,3 +1,7 @@
+[![test](https://github.com/gurgeous/2fer/actions/workflows/ci.yml/badge.svg)](https://github.com/gurgeous/2fer/actions/workflows/ci.yml)
+
+<img src="./logo.png" width="60%">
+
 # 2fer
 
 `2fer` is a small CLI for converting csv-like files between many common file formats.
