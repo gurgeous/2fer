@@ -8,7 +8,9 @@ use std::{
   process::{Command, Stdio},
 };
 
-use super::{Format, csv};
+use serde_json::Value;
+
+use super::{Format, json_value};
 use crate::{
   app::App,
   cell::Cell,
@@ -32,8 +34,8 @@ impl Format for Sqlite {
     &["sqlite", "db", "sqlite3"]
   }
 
-  fn magic(&self) -> &'static [&'static [u8]] {
-    &[SQLITE_MAGIC]
+  fn detect_sample(&self, sample: &[u8]) -> bool {
+    sample.starts_with(SQLITE_MAGIC)
   }
 
   fn binary_output(&self) -> bool {
@@ -44,18 +46,18 @@ impl Format for Sqlite {
     let mut file = crate::util::temp_file("sqlite", "sqlite")?;
     file.write_all(bytes).map_err(|error| Error::WriteFile { path: file.path().to_owned(), error })?;
     file.flush().map_err(|error| Error::WriteFile { path: file.path().to_owned(), error })?;
-    read_sqlite(file.path(), app.args.table.as_deref(), app.args.vanilla)
+    read_sqlite(file.path(), app.args.table.as_deref())
   }
 
   fn read_from_reader(&self, app: &App, reader: &mut dyn Read) -> Result<Table> {
     let mut file = crate::util::temp_file("sqlite", "sqlite")?;
     io::copy(reader, file.as_file_mut()).map_err(|error| Error::WriteFile { path: file.path().to_owned(), error })?;
     file.as_file_mut().flush().map_err(|error| Error::WriteFile { path: file.path().to_owned(), error })?;
-    read_sqlite(file.path(), app.args.table.as_deref(), app.args.vanilla)
+    read_sqlite(file.path(), app.args.table.as_deref())
   }
 
   fn read_from_path(&self, app: &App, path: &Path) -> Result<Table> {
-    read_sqlite(path, app.args.table.as_deref(), app.args.vanilla)
+    read_sqlite(path, app.args.table.as_deref())
   }
 
   fn write_to_bytes(&self, app: &App, table: &Table) -> Result<Vec<u8>> {
@@ -85,13 +87,18 @@ enum SqliteType {
 // read
 //
 
-/// Export one SQLite table as CSV, then reuse CSV reading.
-fn read_sqlite(path: &Path, selected_table: Option<&str>, vanilla: bool) -> Result<Table> {
+/// Export one SQLite table as JSON, then reuse JSON table conversion.
+fn read_sqlite(path: &Path, selected_table: Option<&str>) -> Result<Table> {
   let tables = list_tables(path)?;
   let table = choose_table(&tables, selected_table)?;
   let sql = format!("SELECT * FROM {};", quote_identifier(&table));
-  let stdout = sqlite3_read(path, &["-batch", "-header", "-csv"], &sql)?;
-  csv::read_csv(&stdout, b',', vanilla)
+  let stdout = sqlite3_read(path, &["-batch", "-json"], &sql)?;
+  let Value::Array(rows) = serde_json::from_slice(&stdout)? else {
+    return Err(Error::JsonArrayExpected);
+  };
+  json_value::object_rows_to_table(rows.into_iter().enumerate().map(|(index, row)| (index + 1, row)), |_| {
+    Error::JsonObjectExpected
+  })
 }
 
 fn list_tables(path: &Path) -> Result<Vec<String>> {
@@ -123,10 +130,10 @@ fn sqlite3_read(path: &Path, args: &[&str], sql: &str) -> Result<Vec<u8>> {
 
   let output = command.output().map_err(|err| match err.kind() {
     std::io::ErrorKind::NotFound => Error::SqliteCliMissing,
-    _ => Error::SqliteCliFailed,
+    _ => Error::SqliteCliFailed(err.to_string()),
   })?;
   if !output.status.success() {
-    return Err(Error::SqliteCliFailed);
+    return Err(Error::SqliteCliFailed(sqlite_error(&output.stderr)));
   }
   Ok(output.stdout)
 }
@@ -141,7 +148,7 @@ fn sqlite3_write(table: &Table, table_name: &str, path: &Path) -> Result<()> {
     Command::new(BIN).arg(path).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(
       |error| match error.kind() {
         std::io::ErrorKind::NotFound => Error::SqliteCliMissing,
-        _ => Error::SqliteCliFailed,
+        _ => Error::SqliteCliFailed(error.to_string()),
       },
     )?;
   child
@@ -149,10 +156,10 @@ fn sqlite3_write(table: &Table, table_name: &str, path: &Path) -> Result<()> {
     .take()
     .expect("sqlite3 stdin should be piped")
     .write_all(sql.as_bytes())
-    .map_err(|_| Error::SqliteCliFailed)?;
+    .map_err(|error| Error::SqliteCliFailed(error.to_string()))?;
 
-  let output = child.wait_with_output().map_err(|_| Error::SqliteCliFailed)?;
-  if output.status.success() { Ok(()) } else { Err(Error::SqliteCliFailed) }
+  let output = child.wait_with_output().map_err(|error| Error::SqliteCliFailed(error.to_string()))?;
+  if output.status.success() { Ok(()) } else { Err(Error::SqliteCliFailed(sqlite_error(&output.stderr))) }
 }
 
 // Build the new database beside the destination, then atomically replace it.
@@ -191,7 +198,7 @@ fn script(table: &Table, table_name: &str) -> String {
 fn column_type(table: &Table, index: usize) -> &'static str {
   let mut ty = None;
   for row in &table.rows {
-    ty = match (ty, row.get(index).unwrap_or(&Cell::Null)) {
+    ty = match (ty, &row[index]) {
       (Some(SqliteType::Text), _) | (_, Cell::Text(_) | Cell::Json(_)) => Some(SqliteType::Text),
       (Some(SqliteType::Real), Cell::Null | Cell::Int(_) | Cell::Bool(_) | Cell::Float(_)) => Some(SqliteType::Real),
       (Some(SqliteType::Integer), Cell::Float(_)) => Some(SqliteType::Real),
@@ -236,6 +243,10 @@ fn quote_literal(value: &str) -> String {
   format!("'{}'", value.replace('\'', "''"))
 }
 
+fn sqlite_error(stderr: &[u8]) -> String {
+  String::from_utf8_lossy(stderr).trim().to_owned()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -272,7 +283,6 @@ mod tests {
     assert_eq!("INTEGER", column_type(&table, 0));
     assert_eq!("REAL", column_type(&table, 1));
     assert_eq!("TEXT", column_type(&table, 2));
-    assert_eq!("TEXT", column_type(&table, 3));
   }
 
   #[test]
@@ -315,16 +325,22 @@ mod sqlite3_tests {
     let db = tmp_path("sqlite.db");
     let status = Command::new(BIN)
       .arg(&db)
-      .arg("create table players(name text, score integer); insert into players values ('alice', 1);")
+      .arg(
+        "create table players(name text, score integer, empty text, missing text, code text); \
+         insert into players values ('alice', 1, '', null, '123');",
+      )
       .status()
       .unwrap();
     assert!(status.success());
 
-    let table = read_sqlite(&db, Some("players"), false).unwrap();
-    assert_eq!(["name", "score"], table.headers.as_slice());
+    let table = read_sqlite(&db, Some("players")).unwrap();
+    assert_eq!(["name", "score", "empty", "missing", "code"], table.headers.as_slice());
     assert_eq!(Cell::Text("alice".to_owned()), table.rows[0][0]);
     assert_eq!(Cell::Int(1), table.rows[0][1]);
-    assert!(matches!(read_sqlite(&db, Some("missing"), false), Err(Error::SqliteInvalidTable(..))));
+    assert_eq!(Cell::Text(String::new()), table.rows[0][2]);
+    assert_eq!(Cell::Null, table.rows[0][3]);
+    assert_eq!(Cell::Text("123".to_owned()), table.rows[0][4]);
+    assert!(matches!(read_sqlite(&db, Some("missing")), Err(Error::SqliteInvalidTable(..))));
 
     fs::remove_file(db).unwrap();
   }
@@ -363,7 +379,7 @@ mod sqlite3_tests {
       .unwrap();
     assert!(status.success());
 
-    let table = read_sqlite(&db, None, false).unwrap();
+    let table = read_sqlite(&db, None).unwrap();
     assert_eq!(["name"], table.headers.as_slice());
     assert_eq!(Cell::Text("alice".to_owned()), table.rows[0][0]);
 
@@ -385,7 +401,7 @@ mod sqlite3_tests {
     let file = crate::util::temp_file("sqlite", "sqlite").unwrap();
     fs::write(file.path(), bytes).unwrap();
 
-    let table = read_sqlite(file.path(), Some("players"), false).unwrap();
+    let table = read_sqlite(file.path(), Some("players")).unwrap();
     assert_eq!(source.headers, table.headers);
     assert_eq!(Cell::Text("alice".to_owned()), table.rows[0][0]);
     assert_eq!(Cell::Float(1.5), table.rows[0][1]);
@@ -403,7 +419,7 @@ mod sqlite3_tests {
 
     Sqlite.write_to_path(&app(Some("players")), file.path(), &source).unwrap();
 
-    let table = read_sqlite(file.path(), Some("players"), false).unwrap();
+    let table = read_sqlite(file.path(), Some("players")).unwrap();
     assert_eq!(source.headers, table.headers);
     assert_eq!(Cell::Text("alice".to_owned()), table.rows[0][0]);
     assert_eq!(Cell::Int(1), table.rows[0][1]);
@@ -420,7 +436,7 @@ mod sqlite3_tests {
 
     Sqlite.write_to_path(&app(Some("players")), file.path(), &source).unwrap();
 
-    let table = read_sqlite(file.path(), Some("players"), false).unwrap();
+    let table = read_sqlite(file.path(), Some("players")).unwrap();
     assert_eq!(source.headers, table.headers);
     assert_eq!(Cell::Text("alice".to_owned()), table.rows[0][0]);
     assert_eq!(Cell::Int(1), table.rows[0][1]);

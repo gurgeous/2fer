@@ -2,7 +2,7 @@
 
 use std::{
   ffi::{OsStr, OsString},
-  io::{self, IsTerminal, Write},
+  io::{self, ErrorKind, IsTerminal, Write},
   process::ExitCode,
 };
 
@@ -30,6 +30,7 @@ fn main() -> ExitCode {
 
   match main0(argv, &symlink) {
     Ok(()) => ExitCode::SUCCESS,
+    Err(crate::error::Error::Stdout(ErrorKind::BrokenPipe)) => ExitCode::SUCCESS,
     Err(error) => {
       eprint!("{}", crate::error::format(&error, &symlink));
       ExitCode::FAILURE

@@ -2,7 +2,7 @@
 
 use std::{
   fs::File,
-  io::{self, BufWriter, Write},
+  io::{self, BufWriter, ErrorKind, Write},
   path::Path,
 };
 
@@ -56,7 +56,7 @@ impl Format for Jsonl {
 
   fn write_to_writer(&self, app: &App, table: &Table, out: &mut dyn Write) -> Result<()> {
     let mut out = BufWriter::new(out);
-    write_jsonl(app, table, &mut out).map_err(|_| Error::Stdout)
+    write_jsonl(app, table, &mut out).map_err(stdout_error)
   }
 
   fn write_to_path(&self, app: &App, path: &Path, table: &Table) -> Result<()> {
@@ -78,6 +78,10 @@ fn write_jsonl<W: Write + ?Sized>(app: &App, table: &Table, out: &mut W) -> std:
   }
   out.flush().map_err(serde_json::Error::io)?;
   Ok(())
+}
+
+fn stdout_error(error: serde_json::Error) -> Error {
+  Error::Stdout(error.io_error_kind().unwrap_or(ErrorKind::Other))
 }
 
 //

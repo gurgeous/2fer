@@ -12,20 +12,6 @@ use crate::{
   table::Table,
 };
 
-//
-// owned values
-//
-
-pub(super) fn rows(table: &Table, compact: bool) -> Vec<Value> {
-  let mut rows = table.json_rows();
-  if compact {
-    for row in &mut rows {
-      compact_json(row);
-    }
-  }
-  rows
-}
-
 pub(super) fn object_rows_to_table(
   rows: impl IntoIterator<Item = (usize, Value)>,
   object_error: impl Fn(usize) -> Error,
@@ -38,7 +24,7 @@ pub(super) fn object_rows_to_table(
     };
     let mut record = Vec::new();
     for (key, value) in object {
-      record.push((key, Cell::from_json(value)?));
+      record.push((key, Cell::from_json(value)));
     }
     records.push(record);
   }
@@ -96,8 +82,7 @@ impl Serialize for Row<'_> {
   {
     let mut map = serializer.serialize_map(Some(row_len(self.headers, self.row, self.compact)))?;
     for (index, header) in self.headers.iter().enumerate() {
-      let null = Cell::Null;
-      let cell = self.row.get(index).unwrap_or(&null);
+      let cell = &self.row[index];
       if self.compact && matches!(cell, Cell::Null) {
         continue;
       }
@@ -135,15 +120,7 @@ impl Serialize for JsonCell<'_> {
 }
 
 fn row_len(headers: &[String], row: &[Cell], compact: bool) -> usize {
-  if compact {
-    headers
-      .iter()
-      .enumerate()
-      .filter(|(index, _)| !row.get(*index).is_none_or(|cell| matches!(cell, Cell::Null)))
-      .count()
-  } else {
-    headers.len()
-  }
+  if compact { row.iter().filter(|cell| !matches!(cell, Cell::Null)).count() } else { headers.len() }
 }
 
 //

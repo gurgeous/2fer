@@ -30,11 +30,6 @@ pub trait Format: Debug + Sync {
     self.exts().first().copied().expect("format must define at least one extension")
   }
 
-  /// Magic byte prefix, if any. Empty prefixes are ignored.
-  fn magic(&self) -> &'static [&'static [u8]] {
-    &[]
-  }
-
   /// True when output is binary and unsafe to dump to stdout (ex - sqlite)
   fn binary_output(&self) -> bool {
     false
@@ -52,7 +47,8 @@ pub trait Format: Debug + Sync {
   /// Does this chunk of data appear to be in our format? Look for magic
   /// numbers, heuristics, etc.
   fn detect_sample(&self, sample: &[u8]) -> bool {
-    self.magic().iter().any(|magic| !magic.is_empty() && sample.starts_with(magic))
+    let _ = sample;
+    false
   }
 
   /// Does this file appear to be in our format? detect_sample is excellent and
@@ -97,7 +93,7 @@ pub trait Format: Debug + Sync {
   /// Write table to writer, just calls write_to_bytes by default.
   fn write_to_writer(&self, app: &App, table: &Table, out: &mut dyn Write) -> Result<()> {
     let bytes = self.write_to_bytes(app, table)?;
-    out.write_all(&bytes).map_err(|_| Error::Stdout)
+    out.write_all(&bytes).map_err(Error::stdout)
   }
 
   /// Write table to file, just calls write_to_bytes by default.
@@ -156,14 +152,6 @@ mod tests {
   #[derive(Debug)]
   struct DirectPathFormat;
 
-  /// Test-only format with invalid empty magic.
-  #[derive(Debug)]
-  struct EmptyMagicFormat;
-
-  /// Test-only magic format without deep path detection.
-  #[derive(Debug)]
-  struct MagicFormat;
-
   impl Format for DirectPathFormat {
     fn name(&self) -> &'static str {
       "direct-path"
@@ -183,50 +171,6 @@ mod tests {
 
     fn write_to_path(&self, _app: &App, path: &Path, _table: &Table) -> Result<()> {
       fs::write(path, b"path\n").map_err(|error| Error::WriteFile { path: path.to_owned(), error })
-    }
-  }
-
-  impl Format for EmptyMagicFormat {
-    fn name(&self) -> &'static str {
-      "empty-magic"
-    }
-
-    fn exts(&self) -> &'static [&'static str] {
-      &[]
-    }
-
-    fn magic(&self) -> &'static [&'static [u8]] {
-      &[b""]
-    }
-
-    fn read_from_bytes(&self, _app: &App, _bytes: &[u8]) -> Result<Table> {
-      unreachable!("empty magic test format does not read")
-    }
-
-    fn write_to_bytes(&self, _app: &App, _table: &Table) -> Result<Vec<u8>> {
-      unreachable!("empty magic test format does not write")
-    }
-  }
-
-  impl Format for MagicFormat {
-    fn name(&self) -> &'static str {
-      "magic"
-    }
-
-    fn exts(&self) -> &'static [&'static str] {
-      &[]
-    }
-
-    fn magic(&self) -> &'static [&'static [u8]] {
-      &[b"magic"]
-    }
-
-    fn read_from_bytes(&self, _app: &App, _bytes: &[u8]) -> Result<Table> {
-      unreachable!("magic test format does not read")
-    }
-
-    fn write_to_bytes(&self, _app: &App, _table: &Table) -> Result<Vec<u8>> {
-      unreachable!("magic test format does not write")
     }
   }
 
@@ -310,9 +254,8 @@ mod tests {
   }
 
   #[test]
-  fn test_detect_sample_ignores_empty_magic() {
+  fn test_detect_sample_defaults_false() {
     assert!(!ByteFormat.detect_sample(b"value"));
-    assert!(!EmptyMagicFormat.detect_sample(b"value"));
   }
 
   #[test]
@@ -320,8 +263,7 @@ mod tests {
     let path = tmp_path("detect-path");
     fs::write(&path, b"magic").unwrap();
 
-    assert!(MagicFormat.detect_sample(b"magic"));
-    assert!(!MagicFormat.detect_path(&path));
+    assert!(!ByteFormat.detect_path(&path));
 
     fs::remove_file(path).unwrap();
   }

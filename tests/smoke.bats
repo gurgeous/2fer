@@ -87,6 +87,18 @@ assert_output_matches() {
   assert_output_matches $'[\n  {\n    "name": "alice",\n    "score": 1\n  }\n]'
 }
 
+@test "stdin semicolon csv without trailing newline" {
+  run bash -lc "printf 'name;score\nalice;1\nbob;2' | '$BIN' --as json"
+  [ "$status" -eq 0 ]
+  assert_output_matches $'[\n  {\n    "name": "alice",\n    "score": 1\n  },\n  {\n    "name": "bob",\n    "score": 2\n  }\n]'
+}
+
+@test "broken pipe exits quietly" {
+  run bash -lc "awk 'BEGIN { print \"a,b\"; for (i = 0; i < 100000; i++) print i \",\" i }' | '$BIN' --as json | head -3"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Could not write to stdout"* ]]
+}
+
 @test "--help and --version" {
   run_ok --help
   [[ "$output" == *"Usage: 2fer [OPTIONS] [file]"* ]]
