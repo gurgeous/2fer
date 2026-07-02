@@ -1,0 +1,33 @@
+[package]
+name = "twofer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+
+[[bin]]
+name = "2fer"
+path = "src/main.rs"
+
+[dependencies]
+calamine = "0.35"
+clap = { version = "4", features = ["derive", "string", "wrap_help"] }
+clap_complete = "4"
+csv = "1"
+rust_xlsxwriter = "0.95"
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+tempfile = "3"
+zip = { version = "7", default-features = false, features = ["deflate"] }
+
+#
+# haven't decided which release is preferred yet
+#
+
+[profile.small]
+codegen-units = 1
+inherits = "release"
+lto = "fat"
+opt-level = "z"
+panic = "abort"
+strip = "symbols"
