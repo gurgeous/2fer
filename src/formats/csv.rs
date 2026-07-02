@@ -2,7 +2,7 @@
 //! sniffing.
 
 use super::{Format, infer, nose};
-use crate::{app::App, cell::Cell, error::Result, table::Table};
+use crate::{app::App, cell::Cell, error::Result, table::Table, util};
 
 //
 // format
@@ -55,11 +55,13 @@ impl Csv {
       return delimiter;
     }
 
-    if self.sniff
-      && let Some(delimiter) = nose::sniff(&String::from_utf8_lossy(bytes))
-    {
-      crate::util::log_2fer(format_args!("  delimiter source=sniff value={}", crate::util::inspect_byte(delimiter)));
-      return delimiter;
+    if self.sniff {
+      let sample_len = bytes.len().min(util::SNIFF_BYTES);
+      let sample = String::from_utf8_lossy(&bytes[..sample_len]);
+      if let Some(delimiter) = nose::sniff(&sample, sample_len == bytes.len()) {
+        crate::util::log_2fer(format_args!("  delimiter source=sniff value={}", crate::util::inspect_byte(delimiter)));
+        return delimiter;
+      }
     }
 
     crate::util::log_2fer(format_args!(

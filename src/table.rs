@@ -2,8 +2,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde_json::{Map, Value};
-
 use crate::{
   cell::Cell,
   error::{Error, Result},
@@ -56,31 +54,13 @@ impl Table {
     let mut rows = Vec::with_capacity(records.len());
     for record in records {
       let mut row = vec![Cell::Null; headers.len()];
-      let mut assigned = vec![false; headers.len()];
       for (key, value) in record {
         let index = indexes[&key];
-        if !assigned[index] {
-          row[index] = value;
-          assigned[index] = true;
-        }
+        row[index] = value;
       }
       rows.push(row);
     }
     Ok(Self { headers, rows })
-  }
-
-  pub fn json_rows(&self) -> Vec<Value> {
-    self
-      .rows
-      .iter()
-      .map(|row| {
-        let mut object = Map::new();
-        for (header, cell) in self.headers.iter().zip(row) {
-          object.insert(header.clone(), cell.to_json());
-        }
-        Value::Object(object)
-      })
-      .collect()
   }
 }
 
@@ -138,19 +118,6 @@ mod tests {
     .unwrap();
     assert_eq!(["b", "a", "c"], table.headers.as_slice());
     assert_eq!(vec![Cell::Null, Cell::Null, Cell::Int(3)], table.rows[1]);
-  }
-
-  #[test]
-  fn test_from_records_keeps_first_duplicate_cell() {
-    let table = Table::from_records(vec![vec![
-      ("a".to_owned(), Cell::Int(1)),
-      ("a".to_owned(), Cell::Int(2)),
-      ("b".to_owned(), Cell::Int(3)),
-    ]])
-    .unwrap();
-
-    assert_eq!(["a", "b"], table.headers.as_slice());
-    assert_eq!(vec![Cell::Int(1), Cell::Int(3)], table.rows[0]);
   }
 
   #[test]

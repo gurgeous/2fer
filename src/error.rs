@@ -1,6 +1,6 @@
 //! Error reporting.
 
-use std::{fmt, path::PathBuf};
+use std::{fmt, io::ErrorKind, path::PathBuf};
 
 //
 // types
@@ -22,17 +22,16 @@ pub enum Error {
   JsonlRowMustBeObject(usize),
   LongRow { row: usize, expected: usize, actual: usize },
   MdShape(String),
-  NestedTooDeep,
   NoWorksheets,
   OutputFormatConflict(Vec<String>),
   OutputFormatRequired,
-  SqliteCliFailed,
+  SqliteCliFailed(String),
   SqliteCliMissing,
   SqliteInvalidTable(String, Vec<String>),
   SqliteNoTables,
   TableOptionRequiresSqlite,
   StdinRead,
-  Stdout,
+  Stdout(ErrorKind),
   UnsupportedInputMishap(&'static str),
   UnsupportedOutputFormat(String),
   UnsupportedOutputExtension(String),
@@ -91,7 +90,6 @@ impl fmt::Display for Error {
         write!(f, "Row {row} has {actual} cells, but the header has {expected}")
       }
       Self::MdShape(message) => write!(f, "That markdown file does not look right: {message}"),
-      Self::NestedTooDeep => f.write_str("Nested value exceeds the maximum supported depth"),
       Self::NoWorksheets => f.write_str("Workbook has no sheets"),
       Self::OutputFormatConflict(signals) => {
         write!(f, "Output format signals disagree: {}", signals.join(", "))
@@ -99,7 +97,8 @@ impl fmt::Display for Error {
       Self::OutputFormatRequired => {
         f.write_str("Output format is required; use --as, --output with an extension, or a 2csv/2json/etc symlink")
       }
-      Self::SqliteCliFailed => f.write_str("Could not run sqlite3"),
+      Self::SqliteCliFailed(message) if message.is_empty() => f.write_str("Could not run sqlite3"),
+      Self::SqliteCliFailed(message) => write!(f, "Could not run sqlite3: {message}"),
       Self::SqliteCliMissing => f.write_str("Could not run `sqlite3`. Is it installed?"),
       Self::SqliteInvalidTable(table, tables) => {
         writeln!(f, "Table '{table}' was not found in that sqlite file.")?;
@@ -112,7 +111,7 @@ impl fmt::Display for Error {
       Self::SqliteNoTables => f.write_str("That sqlite file has no tables"),
       Self::TableOptionRequiresSqlite => f.write_str("--table only works with sqlite"),
       Self::StdinRead => f.write_str("Could not read from stdin"),
-      Self::Stdout => f.write_str("Could not write to stdout"),
+      Self::Stdout(_) => f.write_str("Could not write to stdout"),
       Self::UnsupportedInputMishap(kind) => {
         write!(f, "That file appears to be {kind}, not a supported tabular format")
       }
@@ -143,6 +142,16 @@ impl std::error::Error for Error {
       Self::Yml(error) => Some(error),
       _ => None,
     }
+  }
+}
+
+//
+// constructors
+//
+
+impl Error {
+  pub(crate) fn stdout(error: std::io::Error) -> Self {
+    Self::Stdout(error.kind())
   }
 }
 

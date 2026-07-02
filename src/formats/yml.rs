@@ -33,7 +33,7 @@ impl Format for Yml {
   }
 
   fn write_to_bytes(&self, app: &App, table: &Table) -> Result<Vec<u8>> {
-    let mut text = serde_yaml::to_string(&json_value::rows(table, app.args.compact))?;
+    let mut text = serde_yaml::to_string(&json_value::serializable_rows(table, app.args.compact))?;
     if !text.ends_with('\n') {
       text.push('\n');
     }
@@ -73,7 +73,7 @@ fn read_yml(bytes: &[u8]) -> Result<Table> {
       let YamlValue::String(key) = key else {
         return Err(Error::YmlShape("mapping keys must be strings".to_owned()));
       };
-      record.push((key, Cell::from_json(yml_to_json(value)?)?));
+      record.push((key, Cell::from_json(yml_to_json(value)?)));
     }
     records.push(record);
   }

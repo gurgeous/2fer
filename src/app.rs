@@ -9,7 +9,7 @@ use std::{
 use crate::{
   args::Args,
   error::{Error, Result},
-  formats,
+  formats, magic, mishap,
   table::Table,
   util::{self, ReplayReader},
 };
@@ -92,22 +92,33 @@ impl App {
     let mut reader = ReplayReader::new(stdin.lock());
 
     // 1. sniff first 4k, what do we see?
-    let format = {
-      let prefix = reader.peek(util::SNIFF_BYTES).map_err(|_| Error::StdinRead)?;
-      formats::detect_by_sample(prefix)
-    };
+    let sample = reader.peek(util::SNIFF_BYTES).map_err(|_| Error::StdinRead)?;
+    let format = formats::detect_by_sample(sample);
     if let Some(format) = format {
       util::log_2fer(format_args!("  sniff stdin format={}", format.name()));
       self.input_format = Some(format);
       return format.read_from_reader(self, &mut reader);
     }
 
-    // 2. fallback - spill once so path-backed formats get one last chance.
+    // 2. xlsx? it's a zip, but we need the whole file to check it
     util::log_2fer("  sniff stdin format=unknown");
-    let file = self.spill_stdin(&mut reader)?;
-    let path = file.path();
-    util::log_2fer(format_args!("  stdin spilled path={}", path.display()));
-    formats::detect_by_path(path).and_then(|f| self.read_from_path_with_format(path, f))
+    if magic::find_magic(sample) == Some("zip") {
+      let file = self.spill_stdin(&mut reader)?;
+      let path = file.path();
+      util::log_2fer(format_args!("  stdin spilled path={}", path.display()));
+      return formats::detect_by_path(path).and_then(|f| self.read_from_path_with_format(path, f));
+    }
+
+    // 3. mishap? fail
+    if let Some(kind) = mishap::mishap(sample) {
+      return Err(Error::UnsupportedInputMishap(kind));
+    }
+
+    // 4. fallback to csv
+    let format = formats::find("csv").expect("csv format should be registered");
+    util::log_2fer("  sniff stdin fallback format=csv");
+    self.input_format = Some(format);
+    format.read_from_reader(self, &mut reader)
   }
 
   fn read_from_path_with_format(&mut self, path: &Path, format: &'static dyn formats::Format) -> Result<Table> {

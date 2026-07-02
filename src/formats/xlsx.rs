@@ -78,7 +78,7 @@ fn read_xlsx<RS: Read + Seek>(workbook: &mut CalamineXlsx<RS>) -> Result<Table> 
   let Some(headers) = rows.next() else {
     return Ok(Table { headers: Vec::new(), rows: Vec::new() });
   };
-  let headers = headers.iter().map(header_text).collect();
+  let headers = headers.iter().map(|value| input_cell(value).text()).collect();
   let rows = rows.map(|row| row.iter().map(input_cell).collect()).collect();
   Table::from_grid(headers, rows)
 }
@@ -98,13 +98,6 @@ fn write_xlsx(table: &Table) -> Result<Vec<u8>> {
   }
 
   workbook.save_to_buffer().map_err(Into::into)
-}
-
-fn header_text(value: &Data) -> String {
-  match value {
-    Data::Empty => String::new(),
-    _ => input_cell(value).text(),
-  }
 }
 
 fn input_cell(value: &Data) -> Cell {

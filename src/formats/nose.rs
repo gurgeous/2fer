@@ -9,8 +9,8 @@
 const CANDIDATES: &[u8] = b",\t;|";
 
 /// Guess a delimiter from consistently shaped sample rows.
-pub fn sniff(sample: &str) -> Option<u8> {
-  let lines = split_lines(sample);
+pub fn sniff(sample: &str, complete: bool) -> Option<u8> {
+  let lines = split_lines(sample, complete);
   if lines.len() < 3 || lines.iter().any(|line| line.is_empty()) {
     return None;
   }
@@ -31,10 +31,14 @@ pub fn sniff(sample: &str) -> Option<u8> {
 // helpers
 //
 
-// Drop the final line because streaming samples may end mid-row.
-fn split_lines(sample: &str) -> Vec<&str> {
+fn split_lines(sample: &str, complete: bool) -> Vec<&str> {
   let mut lines: Vec<_> = sample.split('\n').take(11).map(|line| line.strip_suffix('\r').unwrap_or(line)).collect();
-  lines.pop();
+  if sample.ends_with('\n') {
+    lines.pop();
+  } else if !complete {
+    // Bounded samples may stop in the middle of a row.
+    lines.pop();
+  }
   lines
 }
 
@@ -80,11 +84,12 @@ mod tests {
 
   #[test]
   fn test_sniff() {
-    assert_eq!(Some(b','), sniff("a,b,c\n1,2,3\n4,5,6\n7,8"));
-    assert_eq!(Some(b';'), sniff("a;b;c\n1;2;3\n4;5;6\n7;8"));
-    assert_eq!(Some(b'\t'), sniff("a\tb\tc\n1\t2\t3\n4\t5\t6\n7\t8"));
-    assert_eq!(Some(b'|'), sniff("a|b|c\n1|2|3\n4|5|6\n7|8"));
-    assert_eq!(None, sniff("a,b\n1,2\n"));
-    assert_eq!(None, sniff("a,b,c\n1,2\n3,4,5\n"));
+    assert_eq!(Some(b','), sniff("a,b,c\n1,2,3\n4,5,6\n7,8", false));
+    assert_eq!(Some(b';'), sniff("a;b;c\n1;2;3\n4;5;6\n7;8", false));
+    assert_eq!(Some(b'\t'), sniff("a\tb\tc\n1\t2\t3\n4\t5\t6\n7\t8", false));
+    assert_eq!(Some(b'|'), sniff("a|b|c\n1|2|3\n4|5|6\n7|8", false));
+    assert_eq!(Some(b';'), sniff("a;b\n1;2\n3;4", true));
+    assert_eq!(None, sniff("a,b\n1,2\n", true));
+    assert_eq!(None, sniff("a,b,c\n1,2\n3,4,5\n", true));
   }
 }
