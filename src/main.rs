@@ -14,6 +14,7 @@ mod args;
 mod cell;
 mod error;
 mod formats;
+mod magic;
 mod mishap;
 mod table;
 mod util;

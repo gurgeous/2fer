@@ -15,6 +15,7 @@ use crate::{
   app::App,
   cell::Cell,
   error::{Error, Result},
+  magic,
   table::Table,
 };
 
@@ -23,7 +24,6 @@ use crate::{
 //
 
 const BIN: &str = "sqlite3";
-const SQLITE_MAGIC: &[u8] = b"SQLite format 3";
 
 /// SQLite format entry.
 #[derive(Debug)]
@@ -35,7 +35,7 @@ impl Format for Sqlite {
   }
 
   fn detect_sample(&self, sample: &[u8]) -> bool {
-    sample.starts_with(SQLITE_MAGIC)
+    magic::find_magic(sample) == Some("sqlite")
   }
 
   fn binary_output(&self) -> bool {

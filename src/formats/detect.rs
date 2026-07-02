@@ -211,7 +211,7 @@ mod tests {
   fn test_detect_mishap_fixture_corpus() {
     for (path, expected) in [
       ("tests/mishaps/arrow.arrow", "arrow"),
-      ("tests/mishaps/avi.avi", "riff"),
+      ("tests/mishaps/avi.avi", "avi"),
       ("tests/mishaps/avro.avro", "avro"),
       ("tests/mishaps/null-byte.bin", "binary"),
       ("tests/mishaps/bzip2.bz2", "bzip2"),
@@ -223,8 +223,8 @@ mod tests {
       ("tests/mishaps/parquet.parquet", "parquet"),
       ("tests/mishaps/pdf.pdf", "pdf"),
       ("tests/mishaps/png.png", "png"),
-      ("tests/mishaps/riff.wav", "riff"),
-      ("tests/mishaps/webp.webp", "riff"),
+      ("tests/mishaps/riff.wav", "wav"),
+      ("tests/mishaps/webp.webp", "webp"),
       ("tests/mishaps/xls.xls", "xls"),
       ("tests/mishaps/xml.xml", "xml"),
       ("tests/mishaps/xz.xz", "xz"),
