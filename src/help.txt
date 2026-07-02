@@ -1,0 +1,7 @@
+2fer converts csv-like files between common formats. Supports csv, tsv, json, jsonl, yml, markdown, sqlite, and xlsx. HINT
+
+2fer auto-detects the INPUT FORMAT based on the input filename or sniffing stdin. 2fer picks the OUTPUT FORMAT based on the output filename or via `--as`. You can also use our symlinks like `2csv`, which is just like `--as csv`. Handy for piping. Examples:
+
+2fer input.sqlite -o output.jsonl        # sqlite => jsonl
+2fer input.csv --as xlsx > output.xlsx   # csv => xslx
+cat input.tsv | 2md > output.md          # tsv => md

@@ -1,0 +1,6 @@
+- name: alice
+  score: 1
+  city: boston
+- name: bob
+  score: 2
+  city: denver

@@ -1,0 +1,7 @@
+[env]
+_.path = ["{{config_root}}/target/debug", '{{config_root}}/bin']
+
+[tools]
+bats = "latest"
+just = "latest"
+rust = "1.96.0"

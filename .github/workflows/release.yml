@@ -1,0 +1,94 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+      - run: just check
+
+  build-release:
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, asset: darwin_arm64.tar.gz }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, asset: darwin_amd64.tar.gz }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, asset: linux_amd64.tar.gz }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, asset: windows_amd64.zip }
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: extractions/setup-just@v4
+
+      - name: verify version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(cargo pkgid | sed 's/.*[@#]//')"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [[ "$tag_version" != "$package_version" ]]; then
+              echo "tag version $tag_version does not match Cargo.toml version $package_version"
+              exit 1
+            fi
+          fi
+
+      - name: build
+        env:
+          TWOFER_GIT_SHA: ${{ github.sha }}
+        run: just archive ${{ matrix.target }} ${{ matrix.asset }}
+
+      - name: verify
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          archive="$(find tmp -maxdepth 1 -name "2fer_*_${ASSET}" -print -quit)"
+          test -f "$archive"
+          rm -rf tmp/release-check && mkdir -p tmp/release-check
+          case "$archive" in
+            *.zip) 7z x -otmp/release-check "$archive" >/dev/null ;;
+            *.tar.gz) tar xzf "$archive" -C tmp/release-check ;;
+          esac
+          package_dir="$(find tmp/release-check -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -f "$package_dir/LICENSE"
+          test -f "$package_dir/README.md"
+          test -f "$package_dir/extra/2fer.bash"
+          test -f "$package_dir/extra/_2fer"
+          aliases=(2csv 2json 2jsonl 2md 2sqlite 2tsv 2xlsx 2yml)
+          package_version="$(cargo pkgid | sed 's/.*[@#]//')"
+          if [[ "$TARGET" == *windows* ]]; then
+            "$package_dir/2fer.exe" --version | grep "$package_version"
+            for alias in "${aliases[@]}"; do
+              test -f "$package_dir/${alias}.exe"
+            done
+          else
+            "$package_dir/2fer" --version | grep "$package_version"
+            for alias in "${aliases[@]}"; do
+              test -e "$package_dir/$alias"
+            done
+          fi
+
+      - name: upload
+        uses: softprops/action-gh-release@v3
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: tmp/2fer_*_${{ matrix.asset }}
